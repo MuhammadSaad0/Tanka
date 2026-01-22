@@ -1,1 +1,1 @@
-Wander until the silence speaks.
+An app for composing haikus with AI-generated landscapes and voice narration.
