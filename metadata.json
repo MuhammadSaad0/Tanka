@@ -1,0 +1,5 @@
+{
+  "name": "Tanka",
+  "description": "An immersive, meditative experience inspired by Ghost of Tsushima. Compose haikus by interacting with generated landscapes using Gemini Nano Banana and TTS.",
+  "requestFramePermissions": []
+}
