@@ -14,7 +14,11 @@ export const generateTheme = async (): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
       model: TEXT_MODEL,
-      contents: "Generate a short, grounded, and realistic nature theme for a Haiku poem. Avoid fantasy or abstract concepts. Examples: 'Jagged Coastline', 'Quiet Forest Path', 'Mountain Peak', 'River Bank', 'Autumn Cliffs'. Return only the theme string.",
+      // Updated prompt for more variety and temperature for randomness
+      contents: "Generate a unique, specific, and highly atmospheric nature setting. Vary the season, time of day, and weather conditions dramatically. Examples: 'Midnight Snow on Cedar Trees', 'Thunderstorm over a Canyon', 'Fog rolling into a Harbor', 'Mossy Ruins in Rain', 'Volcanic Black Sand Beach'. Return only the short theme string.",
+      config: {
+        temperature: 1.4, // High temperature for variety
+      }
     });
     return response.text?.trim() || "Ancient Forest";
   } catch (e) {
@@ -48,8 +52,11 @@ export const generateHaikuOptions = async (
   
   For EACH of the 3 features:
   1. Identify its approximate center coordinates (x, y) as percentages (0-100), where x=0 is left, y=0 is top. Ensure these coordinates ACCURATELY match where the feature is located in the image.
-  2. Describe the visual feature concretely and realistically (e.g., "A jagged grey rock", "Foam on the wave", "Moss on the tree bark").
-  3. Write a poetic, evocative haiku line of EXACTLY ${syllables} syllables inspired by that feature.
+  2. Describe the visual feature concretely and realistically.
+  3. Write a deep, metaphorical, and poignant haiku line of EXACTLY ${syllables} syllables inspired by that feature. 
+     - DO NOT just describe the object. 
+     - Focus on emotion, impermanence, silence, or the passage of time.
+     - Be creative and poetic.
   
   Return a JSON array of objects with keys: "text" (the poetic line), "feature" (the visual description), "x", "y".
   `;
@@ -82,6 +89,7 @@ export const generateHaikuOptions = async (
       model: TEXT_MODEL,
       contents: reqContents,
       config: {
+        temperature: 1.2, // Increased creativity for lines
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -157,13 +165,13 @@ export const generateHaikuAudio = async (text: string): Promise<ArrayBuffer> => 
   try {
     const response = await ai.models.generateContent({
       model: AUDIO_MODEL,
-      // Updated prompt for slower, sadder delivery
-      contents: [{ parts: [{ text: `Recite this haiku slowly, with a melancholic and reflective tone. Infuse a sense of sadness and stillness into the voice. Pause briefly between lines. Text: ${text}` }] }],
+      // Updated prompt: faster pace, slight Asian accent
+      contents: [{ parts: [{ text: `Instructions: Speak with a slightly brisk, flowing pace. Adopt a very subtle, dignified Asian accent. Tone: Reflective and atmospheric. Text: "${text}"` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Charon' } // Deep male voice
+            prebuiltVoiceConfig: { voiceName: 'Charon' } // Deep male voice works well for this
           }
         }
       }

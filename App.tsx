@@ -4,9 +4,6 @@ import { generateTheme, generateLandscape, generateHaikuOptions, generateHaikuAu
 import FocusPoint from './components/FocusPoint';
 import LoadingScreen from './components/LoadingScreen';
 
-// Reliable MP3 source for forest/nature ambience
-const AMBIENT_MUSIC_URL = "/background.mp3";
-
 const App: React.FC = () => {
   // State
   const [appState, setAppState] = useState<AppState>(AppState.INTRO);
@@ -20,10 +17,12 @@ const App: React.FC = () => {
   // Audio Refs
   const audioContextRef = useRef<AudioContext | null>(null);
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Store promises for audio chunks as they are generated line-by-line
+  const audioChunksRef = useRef<Promise<ArrayBuffer>[]>([]);
 
   // Initialize Audio Logic
   const initAudio = useCallback(() => {
-    // 1. Init Audio Context
+    // 1. Init Audio Context for TTS
     if (!audioContextRef.current) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       audioContextRef.current = new AudioContextClass();
@@ -34,20 +33,18 @@ const App: React.FC = () => {
       audioContextRef.current.resume().catch(e => console.warn("AudioContext resume failed", e));
     }
     
-    // 3. Init Ambient Music
-    if (!ambientAudioRef.current) {
-      const audio = new Audio(AMBIENT_MUSIC_URL);
-      audio.loop = true;
-      audio.volume = 0.3;
-      audio.crossOrigin = "anonymous";
-      ambientAudioRef.current = audio;
-    }
-
-    // 4. Play Ambient (if not muted)
-    if (ambientAudioRef.current && !isMuted) {
-      ambientAudioRef.current.play().catch(error => {
-        console.warn("Ambient autoplay prevented:", error);
-      });
+    // 3. Play Ambient (if not muted)
+    // The ref is now attached to the <audio> element in the JSX
+    if (ambientAudioRef.current) {
+      ambientAudioRef.current.volume = 0.3;
+      if (!isMuted) {
+        const playPromise = ambientAudioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.warn("Ambient autoplay prevented or failed:", error);
+          });
+        }
+      }
     }
   }, [isMuted]);
 
@@ -57,6 +54,8 @@ const App: React.FC = () => {
       ambientAudioRef.current.muted = isMuted;
       if (!isMuted && ambientAudioRef.current.paused && appState !== AppState.INTRO) {
           ambientAudioRef.current.play().catch(e => console.warn("Unmute play failed", e));
+      } else if (isMuted && !ambientAudioRef.current.paused) {
+          ambientAudioRef.current.pause();
       }
     }
   }, [isMuted, appState]);
@@ -81,7 +80,7 @@ const App: React.FC = () => {
     return audioBuffer;
   };
 
-  const playBuffer = async (buffer: ArrayBuffer) => {
+  const playSequence = async (buffers: ArrayBuffer[]) => {
     if (!audioContextRef.current) return;
     const ctx = audioContextRef.current;
     
@@ -90,13 +89,21 @@ const App: React.FC = () => {
     }
 
     try {
-      // Decode raw PCM manually
-      const audioBuffer = pcmToAudioBuffer(buffer, ctx);
+      // Decode all buffers first to determine durations
+      const decodedBuffers = buffers.map(b => pcmToAudioBuffer(b, ctx));
       
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      source.start(0);
+      let nextStartTime = ctx.currentTime + 0.1; // mild start buffer
+
+      decodedBuffers.forEach(buffer => {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(nextStartTime);
+
+        // Schedule next clip: duration + 0.6s pause for poetic effect
+        nextStartTime += buffer.duration + 0.6;
+      });
+
     } catch (e) {
       console.error("Audio playback error", e);
     }
@@ -110,6 +117,7 @@ const App: React.FC = () => {
     setFocusPoints([]);
     setBgImage(null);
     setLoadingMessage("Meditating on a theme...");
+    audioChunksRef.current = []; // Reset audio chunks
 
     try {
       const newTheme = await generateTheme();
@@ -145,6 +153,10 @@ const App: React.FC = () => {
   };
 
   const handleFocusClick = async (selectedLine: string, selectedFeature: string) => {
+    // 1. Immediately trigger TTS for this line and store the promise
+    const audioPromise = generateHaikuAudio(selectedLine);
+    audioChunksRef.current.push(audioPromise);
+
     const newLines = [...haikuLines, selectedLine];
     setHaikuLines(newLines);
 
@@ -164,8 +176,7 @@ const App: React.FC = () => {
       const nextIndex = currentLines.length;
       
       // OPTIMIZATION: Removed bgImage passed to generateLandscape.
-      // We now perform a fresh Text-to-Image generation for speed,
-      // rather than a heavier Image-to-Image variation.
+      // We now perform a fresh Text-to-Image generation for speed.
       const [newImage, options] = await Promise.all([
           generateLandscape(theme, lastFeature), 
           generateHaikuOptions(nextIndex, theme, currentLines, null, lastFeature) 
@@ -183,14 +194,14 @@ const App: React.FC = () => {
 
   const finishHaiku = async (finalLines: string[]) => {
     setAppState(AppState.RECITING);
-    setLoadingMessage("Composing reflection...");
+    setLoadingMessage("Reflecting...");
     
     try {
-      const fullPoem = finalLines.join(". ");
-      const audioBuffer = await generateHaikuAudio(fullPoem);
+      // Wait for all pre-fetched audio chunks to resolve
+      const audioBuffers = await Promise.all(audioChunksRef.current);
       
       setLoadingMessage(""); 
-      await playBuffer(audioBuffer);
+      await playSequence(audioBuffers);
       
     } catch (err) {
       console.error("Audio failed", err);
@@ -233,6 +244,12 @@ const App: React.FC = () => {
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black select-none">
       
+      {/* Hidden Audio Element with Multiple Sources for better compatibility */}
+      <audio ref={ambientAudioRef} loop crossOrigin="anonymous">
+          <source src="https://www.soundjay.com/nature/sounds/forest-wind-and-birds-1.mp3" type="audio/mpeg" />
+          <source src="https://upload.wikimedia.org/wikipedia/commons/4/43/Forest_birds.ogg" type="audio/ogg" />
+      </audio>
+
       {/* Background Image Layer */}
       {bgImage && (
         <div 
